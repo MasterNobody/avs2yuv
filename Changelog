@@ -1,3 +1,10 @@
+0.24 BugMaster's mod 2 (2011-9-20)
+merge 2 changes by Oka Motofumi (aka Chikuzen):
+  added 128 KB file buffering for speed up
+  use ffmpeg for huffyuv encoding instead of mencoder
+added support for interlaced avs sources (it must be field-based instead of frame-based)
+new option: -csp i420/i422/i444 for support of I422/I444 colorspaces output (AviSynth 2.6+ is required)
+
 0.24 BugMaster's mod (2011-7-7)
 replaced AviSynth C++ interface with C interface
 compiles with GCC instead of MSVS
