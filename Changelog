@@ -1,0 +1,30 @@
+0.24 (2005-3-4)
+new option: -raw outputs raw I420 (omits yuv4mpeg headers)
+
+0.23 (2005-1-26)
+new option: -slave takes a list of frames to decode
+
+0.22 (2004-11-25)
+fixed a bug when -frames comes before -seek on the command line
+
+0.21 (2004-11-22)
+write to multiple output streams
+huffyuv preset (doesn't work under wine)
+
+0.20 (2004-11-22)
+prints avisynth error messages instead of crashing
+no longer requires avisynth_c.dll
+
+0.13 (2004-11-10)
+binmode stdout again
+
+0.12 (2004-11-9)
+reduced memory footprint
+no longer requires that avisynth be installed; merely having the dlls is enough
+fixed a possible crash on exit
+
+0.11 (2004-10-31)
+binmode stdout (may or may not fix some piping problems)
+
+0.1 (2004-10-4)
+initial release
