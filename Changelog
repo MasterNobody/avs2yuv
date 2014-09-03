@@ -1,3 +1,9 @@
+0.24 BugMaster's mod (2011-7-7)
+replaced AviSynth C++ interface with C interface
+compiles with GCC instead of MSVS
+added call of 'Distributor' for multi-threaded scripts
+calls avs_delete_script_environment at the end of work
+
 0.24 (2005-3-4)
 new option: -raw outputs raw I420 (omits yuv4mpeg headers)
 
