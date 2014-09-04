@@ -1,3 +1,11 @@
+0.24 BugMaster's mod 3 (2014-9-4)
+new options:
+  -depth  specify input bit depth (default 8),
+          >8 expects avisynth 16-bit hack input video
+  -fps    overwrite input framerate
+  -par    specify pixel aspect ratio
+new supported value AUTO for -csp option which will try to detect input colorspace or convert to I420
+
 0.24 BugMaster's mod 2 (2011-9-20)
 merge 2 changes by Oka Motofumi (aka Chikuzen):
   added 128 KB file buffering for speed up
