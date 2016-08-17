@@ -1,9 +1,9 @@
 /*****************************************************************************
- * avs.c: avisynth input
+ * avs_internal.c: avisynth input
  *****************************************************************************
- * Copyright (C) 2009-2011 x264 project
+ * Copyright (C) 2011-2016 avs2yuv project
  *
- * Authors: Steven Walters <kemuri9@gmail.com>
+ * Authors: Anton Mitrofanov <BugMaster@narod.ru>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,9 +18,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111, USA.
- *
- * This program is also available under a commercial proprietary license.
- * For more information, contact us at licensing@x264.com.
  *****************************************************************************/
 
 #include <windows.h>
@@ -60,6 +57,27 @@ typedef struct
         AVSC_DECLARE_FUNC( avs_release_value );
         AVSC_DECLARE_FUNC( avs_release_video_frame );
         AVSC_DECLARE_FUNC( avs_take_clip );
+        // AviSynth+ extension
+        AVSC_DECLARE_FUNC( avs_is_rgb48 );
+        AVSC_DECLARE_FUNC( avs_is_rgb64 );
+        AVSC_DECLARE_FUNC( avs_is_yuv444p16 );
+        AVSC_DECLARE_FUNC( avs_is_yuv422p16 );
+        AVSC_DECLARE_FUNC( avs_is_yuv420p16 );
+        AVSC_DECLARE_FUNC( avs_is_y16 );
+        AVSC_DECLARE_FUNC( avs_is_yuv444ps );
+        AVSC_DECLARE_FUNC( avs_is_yuv422ps );
+        AVSC_DECLARE_FUNC( avs_is_yuv420ps );
+        AVSC_DECLARE_FUNC( avs_is_y32 );
+        AVSC_DECLARE_FUNC( avs_is_444 );
+        AVSC_DECLARE_FUNC( avs_is_422 );
+        AVSC_DECLARE_FUNC( avs_is_420 );
+        AVSC_DECLARE_FUNC( avs_is_y );
+        AVSC_DECLARE_FUNC( avs_is_yuva );
+        AVSC_DECLARE_FUNC( avs_is_planar_rgb );
+        AVSC_DECLARE_FUNC( avs_is_planar_rgba );
+        AVSC_DECLARE_FUNC( avs_num_components );
+        AVSC_DECLARE_FUNC( avs_component_size );
+        AVSC_DECLARE_FUNC( avs_bits_per_component );
     } func;
 } avs_hnd_t;
 
@@ -81,9 +99,31 @@ static int internal_avs_load_library( avs_hnd_t *h )
     LOAD_AVS_FUNC( avs_release_value, 0 );
     LOAD_AVS_FUNC( avs_release_video_frame, 0 );
     LOAD_AVS_FUNC( avs_take_clip, 0 );
+    // AviSynth+ extension
+    LOAD_AVS_FUNC( avs_is_rgb48, 1 );
+    LOAD_AVS_FUNC( avs_is_rgb64, 1 );
+    LOAD_AVS_FUNC( avs_is_yuv444p16, 1 );
+    LOAD_AVS_FUNC( avs_is_yuv422p16, 1 );
+    LOAD_AVS_FUNC( avs_is_yuv420p16, 1 );
+    LOAD_AVS_FUNC( avs_is_y16, 1 );
+    LOAD_AVS_FUNC( avs_is_yuv444ps, 1 );
+    LOAD_AVS_FUNC( avs_is_yuv422ps, 1 );
+    LOAD_AVS_FUNC( avs_is_yuv420ps, 1 );
+    LOAD_AVS_FUNC( avs_is_y32, 1 );
+    LOAD_AVS_FUNC( avs_is_444, 1 );
+    LOAD_AVS_FUNC( avs_is_422, 1 );
+    LOAD_AVS_FUNC( avs_is_420, 1 );
+    LOAD_AVS_FUNC( avs_is_y, 1 );
+    LOAD_AVS_FUNC( avs_is_yuva, 1 );
+    LOAD_AVS_FUNC( avs_is_planar_rgb, 1 );
+    LOAD_AVS_FUNC( avs_is_planar_rgba, 1 );
+    LOAD_AVS_FUNC( avs_num_components, 1 );
+    LOAD_AVS_FUNC( avs_component_size, 1 );
+    LOAD_AVS_FUNC( avs_bits_per_component, 1 );
     return 0;
 fail:
     FreeLibrary( h->library );
+    h->library = NULL;
     return -1;
 }
 
@@ -98,9 +138,11 @@ static AVS_Value internal_avs_update_clip( avs_hnd_t *h, const AVS_VideoInfo **v
 
 static int internal_avs_close_library( avs_hnd_t *h )
 {
-    h->func.avs_release_clip( h->clip );
-    if( h->func.avs_delete_script_environment )
+    if( h->func.avs_release_clip && h->clip )
+        h->func.avs_release_clip( h->clip );
+    if( h->func.avs_delete_script_environment && h->env )
         h->func.avs_delete_script_environment( h->env );
-    FreeLibrary( h->library );
+    if( h->library )
+        FreeLibrary( h->library );
     return 0;
 }

@@ -25,7 +25,7 @@
 #define snprintf _snprintf
 #endif
 
-#define MY_VERSION "Avs2YUV 0.24bm3"
+#define MY_VERSION "Avs2YUV 0.24bm4"
 #define MAX_FH 10
 #define AVS_BUFSIZE (128*1024)
 #define CSP_AUTO (-1)
@@ -60,12 +60,11 @@ int main(int argc, const char* argv[])
     int end = 0;
     int slave = 0;
     int rawyuv = 0;
+    int no_mt = 0;
     int interlaced = 0;
     int tff = 0;
     int csp = CSP_I420;
     int input_depth = 8;
-    int input_width;
-    int input_height;
     unsigned fps_num = 0;
     unsigned fps_den = 0;
     unsigned par_width = 0;
@@ -107,6 +106,8 @@ int main(int argc, const char* argv[])
                 rawyuv = 1;
             } else if(!strcmp(argv[i], "-slave")) {
                 slave = 1;
+            } else if(!strcmp(argv[i], "-no-mt")) {
+                no_mt = 1;
             } else if(!strcmp(argv[i], "-csp")) {
                 if(i > argc-2) {
                     fprintf(stderr, "-csp needs an argument\n");
@@ -190,6 +191,7 @@ add_outfile:
         "-seek\tseek to the given frame number\n"
         "-frames\tstop after processing this many frames\n"
         "-slave\tread a list of frame numbers from stdin (one per line)\n"
+        "-no-mt\tdisable detection of AviSynth MT which adds Distributor()\n"
         "-raw\toutput raw I420/I422/I444 instead of yuv4mpeg\n"
         "-csp\tconvert to I420/I422/I444 or AUTO colorspace (default I420)\n"
         "-depth\tspecify input bit depth (default 8)\n"
@@ -224,15 +226,17 @@ add_outfile:
         fprintf(stderr, "error: %s\n", avs_as_string(res));
         goto fail;
     }
-    /* check if the user is using a multi-threaded script and apply distributor if necessary.
-       adapted from avisynth's vfw interface */
-    AVS_Value mt_test = avs_h.func.avs_invoke(avs_h.env, "GetMTMode", avs_new_value_bool(0), NULL);
-    int mt_mode = avs_is_int(mt_test) ? avs_as_int(mt_test) : 0;
-    avs_h.func.avs_release_value(mt_test);
-    if( mt_mode > 0 && mt_mode < 5 ) {
-        AVS_Value temp = avs_h.func.avs_invoke(avs_h.env, "Distributor", res, NULL);
-        avs_h.func.avs_release_value(res);
-        res = temp;
+    if(!no_mt) {
+        /* check if the user is using a multi-threaded script and apply distributor if necessary.
+           adapted from avisynth's vfw interface */
+        AVS_Value mt_test = avs_h.func.avs_invoke(avs_h.env, "GetMTMode", avs_new_value_bool(0), NULL);
+        int mt_mode = avs_is_int(mt_test) ? avs_as_int(mt_test) : 0;
+        avs_h.func.avs_release_value(mt_test);
+        if( mt_mode > 0 && mt_mode < 5 ) {
+            AVS_Value temp = avs_h.func.avs_invoke(avs_h.env, "Distributor", res, NULL);
+            avs_h.func.avs_release_value(res);
+            res = temp;
+        }
     }
     if(!avs_is_clip(res)) {
         fprintf(stderr, "error: \"%s\" didn't return a video clip\n", infile);
@@ -257,14 +261,20 @@ add_outfile:
         tff = avs_is_tff(inf);
     }
 
-    input_width  = inf->width;
-    input_height = inf->height;
-    if(input_depth > 8) {
+    int component_size = avs_h.func.avs_component_size ? avs_h.func.avs_component_size(inf) : 1;
+    int bits_per_component = avs_h.func.avs_bits_per_component ? avs_h.func.avs_bits_per_component(inf) : 8;
+    int input_width  = inf->width;
+    int input_height = inf->height;
+    int is_16bit_hack = 0;
+    if(bits_per_component > 8) {
+        input_depth = bits_per_component;
+    } else if(input_depth > 8) {
         if(input_width & 3) {
             fprintf(stderr, "avisynth 16-bit hack requires that width is at least mod4\n");
             goto fail;
         }
         fprintf(stderr, "avisynth 16-bit hack enabled\n");
+        is_16bit_hack = 1;
         input_width >>= 1;
     }
     if(!fps_num || !fps_den) {
@@ -272,7 +282,12 @@ add_outfile:
         fps_den = inf->fps_denominator;
     }
 
-    fprintf(stderr, "%s: %dx%d, ", infile, input_width, input_height);
+    AVS_Value pixel_type = avs_h.func.avs_invoke(avs_h.env, "PixelType", res, NULL);
+    const char *pixel_type_name = avs_is_string(pixel_type) ? avs_as_string(pixel_type) : "unknown";
+
+    fprintf(stderr, "%s: %dx%d, %s, %d-bits, %s, ",
+            infile, input_width, input_height, pixel_type_name, input_depth,
+            interlaced ? tff ? "tff" : "bff" : "progressive");
     if(fps_den == 1)
         fprintf(stderr, "%u fps, ", fps_num);
     else
@@ -280,27 +295,34 @@ add_outfile:
     fprintf(stderr, "%d frames\n", inf->num_frames);
 
     if(csp == CSP_AUTO) {
-        if(avs_is_yv12(inf))
+        if(avs_h.func.avs_is_420 ? avs_h.func.avs_is_420(inf) : avs_is_yv12(inf))
             csp = CSP_I420;
-        else if(avs_is_yv16(inf) || avs_is_yuy2(inf))
+        else if((avs_h.func.avs_is_422 ? avs_h.func.avs_is_422(inf) : avs_is_yv16(inf)) || avs_is_yuy2(inf))
             csp = CSP_I422;
-        else if(avs_is_yv24(inf))
+        else if(avs_h.func.avs_is_444 ? avs_h.func.avs_is_444(inf) : avs_is_yv24(inf))
             csp = CSP_I444;
         else
             csp = CSP_I420; // not supported colorspaces (like RGB) we try convert to I420
     }
 
-    if( (csp == CSP_I420 && !avs_is_yv12(inf)) ||
-        (csp == CSP_I422 && !avs_is_yv16(inf)) ||
-        (csp == CSP_I444 && !avs_is_yv24(inf)) )
+    if( (csp == CSP_I420 && !(avs_h.func.avs_is_420 ? avs_h.func.avs_is_420(inf) : avs_is_yv12(inf))) ||
+        (csp == CSP_I422 && !(avs_h.func.avs_is_422 ? avs_h.func.avs_is_422(inf) : avs_is_yv16(inf))) ||
+        (csp == CSP_I444 && !(avs_h.func.avs_is_444 ? avs_h.func.avs_is_444(inf) : avs_is_yv24(inf))) )
     {
-        if(input_depth > 8) {
-            fprintf(stderr, "error: colorspace conversion is not possible with high depth input [%d-bit depth]\n", input_depth);
+        if(is_16bit_hack) {
+            fprintf(stderr, "error: colorspace conversion is not possible with avisynth 16-bit hack\n");
             goto fail;
         }
-        const char *csp_name = csp == CSP_I444 ? "YV24" :
-                               csp == CSP_I422 ? "YV16" :
-                               "YV12";
+        const char *csp_name;
+        if(bits_per_component > 8) {
+            csp_name = csp == CSP_I444 ? "YUV444" :
+                       csp == CSP_I422 ? "YUV422" :
+                       "YUV420";
+        } else {
+            csp_name = csp == CSP_I444 ? "YV24" :
+                       csp == CSP_I422 ? "YV16" :
+                       "YV12";
+        }
         fprintf(stderr, "converting input clip to %s\n", csp_name);
         if(csp < CSP_I444 && (inf->width&1)) {
             fprintf(stderr, "error: input clip width not divisible by 2 (%dx%d)\n", inf->width, inf->height);
@@ -454,12 +476,12 @@ add_outfile:
                 const BYTE* data = avs_get_read_ptr_p(f, planes[p]);
                 for(int y = 0; y < h; y++) {
                     for(int i = 0; i < out_fhs; i++)
-                        wrote += fwrite(data, 1, w, out_fh[i]);
+                        wrote += fwrite(data, component_size, w, out_fh[i]);
                     data += pitch;
                 }
             }
             if(wrote != write_target) {
-                fprintf(stderr, "error: wrote only %d of %d bytes\n", wrote, write_target);
+                fprintf(stderr, "error: wrote only %d of %d bytes\n", wrote * component_size, write_target * component_size);
                 goto fail;
             }
             if(slave) { // assume timing doesn't matter in other modes

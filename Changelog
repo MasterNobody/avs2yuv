@@ -1,3 +1,8 @@
+0.24 BugMaster's mod 4 (2016-8-18)
+new option:
+  -no-mt  disable detection of AviSynth MT which adds Distributor()
+support for AviSynth+ high bit-depth pixel formats
+
 0.24 BugMaster's mod 3 (2014-9-4)
 new options:
   -depth  specify input bit depth (default 8),
