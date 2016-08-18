@@ -23,9 +23,11 @@
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
 #define snprintf _snprintf
+#else
+#include <strings.h>
 #endif
 
-#define MY_VERSION "Avs2YUV 0.24bm4"
+#define MY_VERSION "Avs2YUV 0.24bm5"
 #define MAX_FH 10
 #define AVS_BUFSIZE (128*1024)
 #define CSP_AUTO (-1)
@@ -262,7 +264,7 @@ add_outfile:
     }
 
     int component_size = avs_h.func.avs_component_size ? avs_h.func.avs_component_size(inf) : 1;
-    int bits_per_component = avs_h.func.avs_bits_per_component ? avs_h.func.avs_bits_per_component(inf) : 8;
+    int bits_per_component = avs_h.func.avs_bits_per_component ? avs_h.func.avs_bits_per_component(inf) : 8 * component_size;
     int input_width  = inf->width;
     int input_height = inf->height;
     int is_16bit_hack = 0;
@@ -314,7 +316,7 @@ add_outfile:
             goto fail;
         }
         const char *csp_name;
-        if(bits_per_component > 8) {
+        if(avs_h.func.avs_is_420 || avs_h.func.avs_is_422 || avs_h.func.avs_is_444) {
             csp_name = csp == CSP_I444 ? "YUV444" :
                        csp == CSP_I422 ? "YUV422" :
                        "YUV420";
@@ -340,8 +342,9 @@ add_outfile:
         AVS_Value arg_arr[2];
         arg_arr[0] = res;
         arg_arr[1] = avs_new_value_bool(interlaced);
-        char conv_func[14] = {"ConvertTo"};
-        strcat(conv_func, csp_name);
+        char conv_func[16];
+        snprintf(conv_func, sizeof(conv_func), "ConvertTo%s", csp_name);
+        conv_func[sizeof(conv_func)-1] = 0;
         AVS_Value tmp = avs_h.func.avs_invoke(avs_h.env, conv_func, avs_new_value_array(arg_arr, 2), arg_name);
         if(avs_is_error(tmp)) {
             fprintf(stderr, "error: couldn't convert input clip to %s\n", csp_name);

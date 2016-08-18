@@ -57,7 +57,7 @@
 #  define AVSC_EXPORT __declspec(dllexport)
 #  define AVSC_API(ret, name) EXTERN_C AVSC_EXPORT ret AVSC_CC name
 #else
-#  define AVSC_EXPORT EXTERN_C __declspec(dllimport)
+#  define AVSC_EXPORT __declspec(dllimport)
 #  ifndef AVSC_NO_DECLSPEC
 #    define AVSC_API(ret, name) EXTERN_C AVSC_EXPORT ret AVSC_CC name
 #  else
@@ -285,7 +285,7 @@ AVSC_API(int, avs_is_yv24)(const AVS_VideoInfo * p);
 
 AVSC_API(int, avs_is_yv16)(const AVS_VideoInfo * p);
 
-AVSC_API(int, avs_is_yv12)(const AVS_VideoInfo * p) ;
+AVSC_API(int, avs_is_yv12)(const AVS_VideoInfo * p);
 
 AVSC_API(int, avs_is_yv411)(const AVS_VideoInfo * p);
 
