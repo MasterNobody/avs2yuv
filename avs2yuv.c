@@ -27,18 +27,21 @@
 #include <strings.h>
 #endif
 
-#define MY_VERSION "Avs2YUV 0.24bm5"
+#define MY_VERSION "Avs2YUV 0.24bm6"
 #define MAX_FH 10
 #define AVS_BUFSIZE (128*1024)
 #define CSP_AUTO (-1)
-#define CSP_I420 1
-#define CSP_I422 2
-#define CSP_I444 3
+#define CSP_I400 1
+#define CSP_I420 2
+#define CSP_I422 3
+#define CSP_I444 4
 
 static int csp_to_int(const char *arg)
 {
     if(!strcasecmp(arg, "auto"))
         return CSP_AUTO;
+    if(!strcasecmp(arg, "i400"))
+        return CSP_I400;
     if(!strcasecmp(arg, "i420"))
         return CSP_I420;
     if(!strcasecmp(arg, "i422"))
@@ -194,8 +197,8 @@ add_outfile:
         "-frames\tstop after processing this many frames\n"
         "-slave\tread a list of frame numbers from stdin (one per line)\n"
         "-no-mt\tdisable detection of AviSynth MT which adds Distributor()\n"
-        "-raw\toutput raw I420/I422/I444 instead of yuv4mpeg\n"
-        "-csp\tconvert to I420/I422/I444 or AUTO colorspace (default I420)\n"
+        "-raw\toutput raw I400/I420/I422/I444 instead of yuv4mpeg\n"
+        "-csp\tconvert to I400/I420/I422/I444 or AUTO colorspace (default I420)\n"
         "-depth\tspecify input bit depth (default 8)\n"
         "-fps\toverwrite input framerate\n"
         "-par\tspecify pixel aspect ratio\n"
@@ -225,7 +228,7 @@ add_outfile:
     AVS_Value arg = avs_new_value_string(infile);
     AVS_Value res = avs_h.func.avs_invoke(avs_h.env, "Import", arg, NULL);
     if(avs_is_error(res)) {
-        fprintf(stderr, "error: %s\n", avs_as_string(res));
+        fprintf(stderr, "error: %s\n", avs_as_error(res));
         goto fail;
     }
     if(!no_mt) {
@@ -255,7 +258,7 @@ add_outfile:
         fprintf(stderr, "detected fieldbased (separated) input, weaving to frames\n");
         AVS_Value tmp = avs_h.func.avs_invoke(avs_h.env, "Weave", res, NULL);
         if(avs_is_error(tmp)) {
-            fprintf(stderr, "error: couldn't weave fields into frames\n");
+            fprintf(stderr, "error: couldn't weave fields into frames: %s\n", avs_as_error(tmp));
             goto fail;
         }
         res = internal_avs_update_clip(&avs_h, &inf, tmp, res);
@@ -303,13 +306,16 @@ add_outfile:
             csp = CSP_I422;
         else if(avs_h.func.avs_is_444 ? avs_h.func.avs_is_444(inf) : avs_is_yv24(inf))
             csp = CSP_I444;
+        else if(avs_h.func.avs_is_y ? avs_h.func.avs_is_y(inf) : avs_is_y8(inf))
+            csp = CSP_I400;
         else
             csp = CSP_I420; // not supported colorspaces (like RGB) we try convert to I420
     }
 
     if( (csp == CSP_I420 && !(avs_h.func.avs_is_420 ? avs_h.func.avs_is_420(inf) : avs_is_yv12(inf))) ||
         (csp == CSP_I422 && !(avs_h.func.avs_is_422 ? avs_h.func.avs_is_422(inf) : avs_is_yv16(inf))) ||
-        (csp == CSP_I444 && !(avs_h.func.avs_is_444 ? avs_h.func.avs_is_444(inf) : avs_is_yv24(inf))) )
+        (csp == CSP_I444 && !(avs_h.func.avs_is_444 ? avs_h.func.avs_is_444(inf) : avs_is_yv24(inf))) ||
+        (csp == CSP_I400 && !(avs_h.func.avs_is_y ? avs_h.func.avs_is_y(inf) : avs_is_y8(inf))) )
     {
         if(is_16bit_hack) {
             fprintf(stderr, "error: colorspace conversion is not possible with avisynth 16-bit hack\n");
@@ -317,37 +323,47 @@ add_outfile:
         }
         const char *csp_name;
         if(avs_h.func.avs_is_420 || avs_h.func.avs_is_422 || avs_h.func.avs_is_444) {
-            csp_name = csp == CSP_I444 ? "YUV444" :
+            csp_name = csp == CSP_I400 ? "Y" :
+                       csp == CSP_I444 ? "YUV444" :
                        csp == CSP_I422 ? "YUV422" :
                        "YUV420";
         } else {
-            csp_name = csp == CSP_I444 ? "YV24" :
+            csp_name = csp == CSP_I400 ? "Y8" :
+                       csp == CSP_I444 ? "YV24" :
                        csp == CSP_I422 ? "YV16" :
                        "YV12";
         }
         fprintf(stderr, "converting input clip to %s\n", csp_name);
-        if(csp < CSP_I444 && (inf->width&1)) {
-            fprintf(stderr, "error: input clip width not divisible by 2 (%dx%d)\n", inf->width, inf->height);
-            goto fail;
+        if(csp != CSP_I400) {
+            if(csp < CSP_I444 && (inf->width&1)) {
+                fprintf(stderr, "error: input clip width not divisible by 2 (%dx%d)\n", inf->width, inf->height);
+                goto fail;
+            }
+            if(csp == CSP_I420 && interlaced && (inf->height&3)) {
+                fprintf(stderr, "error: input clip height not divisible by 4 (%dx%d)\n", inf->width, inf->height);
+                goto fail;
+            }
+            if((csp == CSP_I420 || interlaced) && (inf->height&1)) {
+                fprintf(stderr, "error: input clip height not divisible by 2 (%dx%d)\n", inf->width, inf->height);
+                goto fail;
+            }
         }
-        if(csp == CSP_I420 && interlaced && (inf->height&3)) {
-            fprintf(stderr, "error: input clip height not divisible by 4 (%dx%d)\n", inf->width, inf->height);
-            goto fail;
-        }
-        if((csp == CSP_I420 || interlaced) && (inf->height&1)) {
-            fprintf(stderr, "error: input clip height not divisible by 2 (%dx%d)\n", inf->width, inf->height);
-            goto fail;
-        }
-        const char *arg_name[2] = {NULL, "interlaced"};
-        AVS_Value arg_arr[2];
-        arg_arr[0] = res;
-        arg_arr[1] = avs_new_value_bool(interlaced);
         char conv_func[16];
         snprintf(conv_func, sizeof(conv_func), "ConvertTo%s", csp_name);
         conv_func[sizeof(conv_func)-1] = 0;
-        AVS_Value tmp = avs_h.func.avs_invoke(avs_h.env, conv_func, avs_new_value_array(arg_arr, 2), arg_name);
+        AVS_Value arg_arr[2];
+        const char *arg_name[2];
+        int arg_count = 1;
+        arg_arr[0] = res;
+        arg_name[0] = NULL;
+        if(csp != CSP_I400) {
+            arg_arr[arg_count] = avs_new_value_bool(interlaced);
+            arg_name[arg_count] = "interlaced";
+            arg_count++;
+        }
+        AVS_Value tmp = avs_h.func.avs_invoke(avs_h.env, conv_func, avs_new_value_array(arg_arr, arg_count), arg_name);
         if(avs_is_error(tmp)) {
-            fprintf(stderr, "error: couldn't convert input clip to %s\n", csp_name);
+            fprintf(stderr, "error: couldn't convert input clip to %s: %s\n", csp_name, avs_as_error(tmp));
             goto fail;
         }
         res = internal_avs_update_clip(&avs_h, &inf, tmp, res);
@@ -395,6 +411,12 @@ add_outfile:
     int chroma_h_shift = 0;
     int chroma_v_shift = 0;
     switch(csp) {
+        case CSP_I400:
+            if(input_depth > 8)
+                sprintf(csp_type, "Cmono%d", input_depth);
+            else
+                strcpy(csp_type, "Cmono");
+            break;
         case CSP_I420:
             if(input_depth > 8)
                 sprintf(csp_type, "C420p%d XYSCSS=420P%d", input_depth, input_depth);
@@ -432,7 +454,12 @@ add_outfile:
         fflush(out_fh[i]);
     }
 
-    int frame_size = inf->width * inf->height + 2 * (inf->width >> chroma_h_shift) * (inf->height >> chroma_v_shift);
+    int planes_count = 1;
+    int frame_size = inf->width * inf->height;
+    if(csp != CSP_I400) {
+        planes_count += 2;
+        frame_size += 2 * (inf->width >> chroma_h_shift) * (inf->height >> chroma_v_shift);
+    }
     int write_target = out_fhs * frame_size; // how many bytes per frame we expect to write
 
     if(slave) {
@@ -472,7 +499,7 @@ add_outfile:
                 if(y4m_headers[i])
                     fwrite("FRAME\n", 1, 6, out_fh[i]);
 
-            for(int p = 0; p < 3; p++) {
+            for(int p = 0; p < planes_count; p++) {
                 int w = inf->width  >> (p ? chroma_h_shift : 0);
                 int h = inf->height >> (p ? chroma_v_shift : 0);
                 int pitch = avs_get_pitch_p(f, planes[p]);
