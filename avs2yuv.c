@@ -13,6 +13,7 @@
 #include <string.h>
 #include <io.h>
 #include <fcntl.h>
+#include <sys/timeb.h>
 #include "avs_internal.c"
 
 #ifndef INT_MAX
@@ -51,6 +52,12 @@ static int csp_to_int(const char *arg)
     return 0;
 }
 
+inline long get_date() {
+    struct timeb tb;
+    ftime( &tb );
+    return ((long)tb.time * 1000 + (long)tb.millitm) * 1000;
+}
+
 int main(int argc, const char* argv[])
 {
     const char* infile = NULL;
@@ -70,6 +77,7 @@ int main(int argc, const char* argv[])
     int tff = 0;
     int csp = CSP_I420;
     int input_depth = 8;
+    int showfps = 0;
     unsigned fps_num = 0;
     unsigned fps_den = 0;
     unsigned par_width = 0;
@@ -168,6 +176,8 @@ int main(int argc, const char* argv[])
                     fprintf(stderr, "-par \"%s\" is not supported\n", str);
                     return 2;
                 }
+            } else if(!strcmp(argv[i], "-showfps")) {
+                showfps = 1;
             } else {
                 fprintf(stderr, "no such option: %s\n", argv[i]);
                 return 2;
@@ -192,16 +202,17 @@ add_outfile:
     if(usage || !infile || (!out_fhs && !hfyufile && !verbose)) {
         fprintf(stderr, MY_VERSION "\n"
         "Usage: avs2yuv [options] in.avs [-o out.y4m] [-o out2.y4m] [-hfyu out.avi]\n"
-        "-v\tprint the frame number after processing each frame\n"
-        "-seek\tseek to the given frame number\n"
-        "-frames\tstop after processing this many frames\n"
-        "-slave\tread a list of frame numbers from stdin (one per line)\n"
-        "-no-mt\tdisable detection of AviSynth MT which adds Distributor()\n"
-        "-raw\toutput raw I400/I420/I422/I444 instead of yuv4mpeg\n"
-        "-csp\tconvert to I400/I420/I422/I444 or AUTO colorspace (default I420)\n"
-        "-depth\tspecify input bit depth (default 8)\n"
-        "-fps\toverwrite input framerate\n"
-        "-par\tspecify pixel aspect ratio\n"
+        "-v\t\tprint the frame number after processing each frame (overrides -showfps)\n"
+        "-showfps\tshow script execution speed in fps\n"
+        "-seek\t\tseek to the given frame number\n"
+        "-frames\t\tstop after processing this many frames\n"
+        "-slave\t\tread a list of frame numbers from stdin (one per line)\n"
+        "-no-mt\t\tdisable detection of AviSynth MT which adds Distributor()\n"
+        "-raw\t\toutput raw I400/I420/I422/I444 instead of yuv4mpeg\n"
+        "-csp\t\tconvert to I400/I420/I422/I444 or AUTO colorspace (default I420)\n"
+        "-depth\t\tspecify input bit depth (default 8)\n"
+        "-fps\t\toverwrite input framerate\n"
+        "-par\t\tspecify pixel aspect ratio\n"
         "The outfile may be \"-\", meaning stdout.\n"
         "Output format is yuv4mpeg, as used by MPlayer, FFmpeg, Libav, x264, mjpegtools.\n"
         "Huffyuv output requires ffmpeg, and probably doesn't work in Wine.\n"
@@ -471,6 +482,8 @@ add_outfile:
             end = inf->num_frames;
     }
 
+    long start_time = get_date();
+
     for(int frm = seek; frm < end; ++frm) {
         if(slave) {
             char input[80];
@@ -522,6 +535,12 @@ add_outfile:
 
         if(verbose)
             fprintf(stderr, "%d\n", frm);
+        else if(showfps) {
+            long elapsed_time = get_date() - start_time;
+            double fps = elapsed_time > 0 ? frm * 1000000. / elapsed_time : 0;
+            fprintf(stderr, "%.2f fps     \r", fps);
+        }
+
 
         avs_h.func.avs_release_video_frame(f);
     }
