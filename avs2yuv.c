@@ -11,8 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <io.h>
-#include <fcntl.h>
 #include "avs_internal.c"
 
 #ifndef INT_MAX
@@ -25,6 +23,22 @@
 #define snprintf _snprintf
 #else
 #include <strings.h>
+#endif
+
+#ifdef _WIN32
+#include <io.h>       /* _setmode() */
+#include <fcntl.h>    /* _O_BINARY */
+#define fileno _fileno
+#define dup _dup
+#define fdopen _fdopen
+#define popen _popen
+#define pclose _pclose
+#else
+#include <unistd.h>
+#endif
+
+#ifdef _WIN32
+#define HAVE_HFYU 1
 #endif
 
 #define MY_VERSION "Avs2YUV 0.24bm6"
@@ -50,6 +64,22 @@ static int csp_to_int(const char *arg)
         return CSP_I444;
     return 0;
 }
+
+#define AVS_IS_YV24( vi ) (avs_h.func.avs_is_yv24 ? avs_h.func.avs_is_yv24( vi ) : avs_is_yv24( vi ))
+#define AVS_IS_YV16( vi ) (avs_h.func.avs_is_yv16 ? avs_h.func.avs_is_yv16( vi ) : avs_is_yv16( vi ))
+#define AVS_IS_YV12( vi ) (avs_h.func.avs_is_yv12 ? avs_h.func.avs_is_yv12( vi ) : avs_is_yv12( vi ))
+#define AVS_IS_Y8( vi ) (avs_h.func.avs_is_y8 ? avs_h.func.avs_is_y8( vi ) : avs_is_y8( vi ))
+#define AVS_GET_PITCH_P( p, plane ) (avs_h.func.avs_get_pitch_p ? avs_h.func.avs_get_pitch_p( p, plane ) : avs_get_pitch_p( p, plane ))
+#define AVS_GET_READ_PTR_P( p, plane ) (avs_h.func.avs_get_read_ptr_p ? avs_h.func.avs_get_read_ptr_p( p, plane ) : avs_get_read_ptr_p( p, plane ))
+
+#define AVS_IS_AVISYNTHPLUS (avs_h.func.avs_is_420 && avs_h.func.avs_is_422 && avs_h.func.avs_is_444)
+#define AVS_IS_420( vi ) (avs_h.func.avs_is_420 ? avs_h.func.avs_is_420( vi ) : AVS_IS_YV12( vi ))
+#define AVS_IS_422( vi ) (avs_h.func.avs_is_422 ? avs_h.func.avs_is_422( vi ) : AVS_IS_YV16( vi ))
+#define AVS_IS_444( vi ) (avs_h.func.avs_is_444 ? avs_h.func.avs_is_444( vi ) : AVS_IS_YV24( vi ))
+#define AVS_IS_Y( vi ) (avs_h.func.avs_is_y ? avs_h.func.avs_is_y( vi ) : AVS_IS_Y8( vi ))
+
+#define AVS_COMPONENT_SIZE( vi ) (avs_h.func.avs_component_size ? avs_h.func.avs_component_size( vi ) : 1)
+#define AVS_BITS_PER_COMPONENT( vi ) (avs_h.func.avs_bits_per_component ? avs_h.func.avs_bits_per_component( vi ) : 8)
 
 int main(int argc, const char* argv[])
 {
@@ -101,12 +131,14 @@ int main(int argc, const char* argv[])
                     return 2;
                 }
                 end = atoi(argv[++i]);
+#if HAVE_HFYU
             } else if(!strcmp(argv[i], "-hfyu")) {
                 if(i > argc-2) {
                     fprintf(stderr, "-hfyu needs an argument\n");
                     return 2;
                 }
                 hfyufile = argv[++i];
+#endif
             } else if(!strcmp(argv[i], "-raw")) {
                 rawyuv = 1;
             } else if(!strcmp(argv[i], "-slave")) {
@@ -191,7 +223,11 @@ add_outfile:
 
     if(usage || !infile || (!out_fhs && !hfyufile && !verbose)) {
         fprintf(stderr, MY_VERSION "\n"
+#if HAVE_HFYU
         "Usage: avs2yuv [options] in.avs [-o out.y4m] [-o out2.y4m] [-hfyu out.avi]\n"
+#else
+        "Usage: avs2yuv [options] in.avs [-o out.y4m] [-o out2.y4m]\n"
+#endif
         "-v\tprint the frame number after processing each frame\n"
         "-seek\tseek to the given frame number\n"
         "-frames\tstop after processing this many frames\n"
@@ -204,7 +240,9 @@ add_outfile:
         "-par\tspecify pixel aspect ratio\n"
         "The outfile may be \"-\", meaning stdout.\n"
         "Output format is yuv4mpeg, as used by MPlayer, FFmpeg, Libav, x264, mjpegtools.\n"
+#if HAVE_HFYU
         "Huffyuv output requires ffmpeg, and probably doesn't work in Wine.\n"
+#endif
         );
         return 2;
     }
@@ -266,8 +304,8 @@ add_outfile:
         tff = avs_is_tff(inf);
     }
 
-    int component_size = avs_h.func.avs_component_size ? avs_h.func.avs_component_size(inf) : 1;
-    int bits_per_component = avs_h.func.avs_bits_per_component ? avs_h.func.avs_bits_per_component(inf) : 8 * component_size;
+    int component_size = AVS_COMPONENT_SIZE(inf);
+    int bits_per_component = AVS_BITS_PER_COMPONENT(inf);
     int input_width  = inf->width;
     int input_height = inf->height;
     int is_16bit_hack = 0;
@@ -300,29 +338,29 @@ add_outfile:
     fprintf(stderr, "%d frames\n", inf->num_frames);
 
     if(csp == CSP_AUTO) {
-        if(avs_h.func.avs_is_420 ? avs_h.func.avs_is_420(inf) : avs_is_yv12(inf))
+        if(AVS_IS_420(inf))
             csp = CSP_I420;
-        else if((avs_h.func.avs_is_422 ? avs_h.func.avs_is_422(inf) : avs_is_yv16(inf)) || avs_is_yuy2(inf))
+        else if(AVS_IS_422(inf) || avs_is_yuy2(inf))
             csp = CSP_I422;
-        else if(avs_h.func.avs_is_444 ? avs_h.func.avs_is_444(inf) : avs_is_yv24(inf))
+        else if(AVS_IS_444(inf))
             csp = CSP_I444;
-        else if(avs_h.func.avs_is_y ? avs_h.func.avs_is_y(inf) : avs_is_y8(inf))
+        else if(AVS_IS_Y(inf))
             csp = CSP_I400;
         else
             csp = CSP_I420; // not supported colorspaces (like RGB) we try convert to I420
     }
 
-    if( (csp == CSP_I420 && !(avs_h.func.avs_is_420 ? avs_h.func.avs_is_420(inf) : avs_is_yv12(inf))) ||
-        (csp == CSP_I422 && !(avs_h.func.avs_is_422 ? avs_h.func.avs_is_422(inf) : avs_is_yv16(inf))) ||
-        (csp == CSP_I444 && !(avs_h.func.avs_is_444 ? avs_h.func.avs_is_444(inf) : avs_is_yv24(inf))) ||
-        (csp == CSP_I400 && !(avs_h.func.avs_is_y ? avs_h.func.avs_is_y(inf) : avs_is_y8(inf))) )
+    if( (csp == CSP_I420 && !AVS_IS_420(inf)) ||
+        (csp == CSP_I422 && !AVS_IS_422(inf)) ||
+        (csp == CSP_I444 && !AVS_IS_444(inf)) ||
+        (csp == CSP_I400 && !AVS_IS_Y(inf)) )
     {
         if(is_16bit_hack) {
             fprintf(stderr, "error: colorspace conversion is not possible with avisynth 16-bit hack\n");
             goto fail;
         }
         const char *csp_name;
-        if(avs_h.func.avs_is_420 || avs_h.func.avs_is_422 || avs_h.func.avs_is_444) {
+        if(AVS_IS_AVISYNTHPLUS) {
             csp_name = csp == CSP_I400 ? "Y" :
                        csp == CSP_I444 ? "YUV444" :
                        csp == CSP_I422 ? "YUV422" :
@@ -377,10 +415,12 @@ add_outfile:
                     fprintf(stderr, "error: can't write to stdout multiple times\n");
                     goto fail;
                 }
-            int dupout = _dup(_fileno(stdout));
+            int dupout = dup(fileno(stdout));
             fclose(stdout);
+#ifdef _WIN32
             _setmode(dupout, _O_BINARY);
-            out_fh[i] = _fdopen(dupout, "wb");
+#endif
+            out_fh[i] = fdopen(dupout, "wb");
         } else {
             out_fh[i] = fopen(outfile[i], "wb");
             if(!out_fh[i]) {
@@ -389,6 +429,7 @@ add_outfile:
             }
         }
     }
+#if HAVE_HFYU
     if(hfyufile) {
         char *cmd = malloc(100+strlen(hfyufile));
         if(!cmd) {
@@ -396,7 +437,7 @@ add_outfile:
            goto fail;
         }
         sprintf(cmd, "ffmpeg -loglevel quiet -v 0 -y -f yuv4mpegpipe -i - -vcodec ffvhuff -an -f avi \"%s\"", hfyufile);
-        out_fh[out_fhs] = _popen(cmd, "wb");
+        out_fh[out_fhs] = popen(cmd, "wb");
         free(cmd);
         if(!out_fh[out_fhs]) {
             fprintf(stderr, "error: failed to exec ffmpeg\n");
@@ -405,6 +446,7 @@ add_outfile:
         y4m_headers[out_fhs] = 1;
         out_fhs++;
     }
+#endif
 
     char *interlace_type = interlaced ? tff ? "t" : "b" : "p";
     char csp_type[200];
@@ -502,8 +544,8 @@ add_outfile:
             for(int p = 0; p < planes_count; p++) {
                 int w = inf->width  >> (p ? chroma_h_shift : 0);
                 int h = inf->height >> (p ? chroma_v_shift : 0);
-                int pitch = avs_get_pitch_p(f, planes[p]);
-                const BYTE* data = avs_get_read_ptr_p(f, planes[p]);
+                int pitch = AVS_GET_PITCH_P(f, planes[p]);
+                const BYTE* data = AVS_GET_READ_PTR_P(f, planes[p]);
                 for(int y = 0; y < h; y++) {
                     for(int i = 0; i < out_fhs; i++)
                         wrote += fwrite(data, component_size, w, out_fh[i]);
@@ -532,11 +574,13 @@ add_outfile:
 close_files:
     retval = 0;
 fail:
+#if HAVE_HFYU
     if(hfyufile) {
         if(out_fh[out_fhs-1])
-            _pclose(out_fh[out_fhs-1]);
+            pclose(out_fh[out_fhs-1]);
         out_fhs--;
     }
+#endif
     for(int i = 0; i < out_fhs; i++)
         if(out_fh[i])
             fclose(out_fh[i]);
